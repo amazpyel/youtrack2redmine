@@ -3,9 +3,11 @@ import os
 import shutil
 import time
 import sys
+import ConfigParser
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from youtrack.connection import Connection
+from youtrack import YouTrackException
 from redmine import Redmine
 from redmine.exceptions import ServerError
 
@@ -208,7 +210,7 @@ def delete_folder():
 
 
 def set_parents():
-    parents_list = youtrack.getIssues('Parent for: ' + str(yt_issue), 0, 3000)
+    parents_list = youtrack.getIssues('Parent for: ' + str(yt_issue), 0, 5000)
     if len(parents_list) != 0:
         try:
             child_issue = redmine.issue.get(rdmn_issue)
@@ -219,7 +221,7 @@ def set_parents():
 
 
 def set_relates():
-    relates_list = youtrack.getIssues('Relates to: ' + str(yt_issue), 0, 3000)
+    relates_list = youtrack.getIssues('Relates to: ' + str(yt_issue), 0, 5000)
     if len(relates_list) != 0:
         for relate_issue in relates_list:
             relation = redmine.issue_relation.new()
@@ -233,7 +235,7 @@ def set_relates():
 
 
 def set_depends():
-    depends_list = youtrack.getIssues('Depends on: ' + str(yt_issue), 0, 3000)
+    depends_list = youtrack.getIssues('Depends on: ' + str(yt_issue), 0, 5000)
     if len(depends_list) != 0:
         for depend_issue in depends_list:
             depend_relation = redmine.issue_relation.new()
@@ -244,7 +246,7 @@ def set_depends():
 
 
 def set_duplicates():
-    duplicates_list = youtrack.getIssues('Duplicates: ' + str(yt_issue), 0, 3000)
+    duplicates_list = youtrack.getIssues('Duplicates: ' + str(yt_issue), 0, 5000)
     if len(duplicates_list) != 0:
         for duplicate_issue in duplicates_list:
             duplicate_relation = redmine.issue_relation.new()
@@ -261,7 +263,7 @@ def get_tracking(id):
 
 
 def add_tracking():
-    tracking_info = youtrack.get_tracking(yt_issue)
+    tracking_info = get_tracking(yt_issue)
     root = ET.fromstring(tracking_info)
     if len(root.findall('workItem')) != 0:
         for workItem in root.findall('workItem'):
@@ -299,32 +301,46 @@ def add_tracking():
 
 if __name__ == '__main__':
     start_time = time.time()
+    print "This script makes a copy of issues from YouTrack to Redmine"
     parentdir = os.path.dirname(os.path.realpath(__file__))
     sys.path.append(parentdir)
 
-    LOGIN = ''
-    PASSWRD = base64.b64decode('encrypted password')
-    YOUTRACK_URL = 'youtrack url'
-    REDMINE_URL = 'redmine url'
-    REDMINE_API_KEY = 'api key'
-    REDMINE_PROJECT = 'redmine project name'
-    YOUTRACK_PROJECT = 'youtrack project id'
-    SEARCH_QUERY = 'youtrack search query'
+    config = ConfigParser.ConfigParser()
+    config.read('config.ini')
 
-    youtrack = Connection(YOUTRACK_URL, LOGIN, PASSWRD)
+    LOGIN = config.get('CREDENTIALS', 'domain') + '\\' + config.get('CREDENTIALS', 'login')
+    PASSWRD = base64.b64decode(config.get('CREDENTIALS', 'password'))
+    YOUTRACK_URL = config.get('YOUTRACK', 'url')
+    REDMINE_URL = config.get('REDMINE', 'url')
+    REDMINE_API_KEY = config.get('REDMINE', 'api key')
+    REDMINE_PROJECT = config.get('REDMINE', 'project')
+    YOUTRACK_PROJECT = config.get('YOUTRACK', 'project')
+    SEARCH_QUERY = config.get('YOUTRACK', 'search query').replace('\n', '')
+
+    try:
+        youtrack = Connection(YOUTRACK_URL, LOGIN, PASSWRD)
+    except YouTrackException as yt_exc:
+        print yt_exc
+        sys.exit(0)
+
     redmine = Redmine(REDMINE_URL, key=REDMINE_API_KEY, requests={'verify': False})
 
-    issues_list = youtrack.getIssues('project: ' + YOUTRACK_PROJECT + SEARCH_QUERY, 0, 1000)
+    print "Getting YouTrack issues..."
+    issues_list = youtrack.getIssues('project: ' + YOUTRACK_PROJECT + ' ' + SEARCH_QUERY, 0, 5000)
 
-    redmine_users = get_redmine_users()
-    redmine_trackers = get_redmine_trackers()
-    redmine_statuses = get_redmine_statuses()
-    redmine_priorities = get_redmine_priorities()
-    redmine_versions = get_redmine_project_versions()
-    redmine_custom_fields = get_redmine_custom_fields()
+    try:
+        redmine_users = get_redmine_users()
+        redmine_trackers = get_redmine_trackers()
+        redmine_statuses = get_redmine_statuses()
+        redmine_priorities = get_redmine_priorities()
+        redmine_versions = get_redmine_project_versions()
+        redmine_custom_fields = get_redmine_custom_fields()
+    except Exception as e:
+        print e
+        sys.exit(0)
 
     issues_dict = {}
-    print "This script makes a copy of issues from YouTrack to Redmine"
+
     print "==========Copying from YouTrack to Redmine=========="
     for issue in issues_list:
         issue_id = issue.id
